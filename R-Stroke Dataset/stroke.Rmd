@@ -1,0 +1,150 @@
+---
+title: "R Notebook"
+output: word_document
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+if (!require(caret)) install.packages("caret", dependencies=TRUE)
+if (!require(corrplot)) install.packages("corrplot", dependencies=TRUE)
+
+
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(randomForest)
+library(corrplot)
+library(reshape2)
+
+
+
+plot(cars)
+```
+# 1: Data Processing
+# 2: Exploratory Data Analysis(EDA)
+# 3: Train-test split
+# 4: Modeling
+# 5: Evaluation
+
+# Load the dataset
+```{r}
+stroke_data <- read.csv("healthcare-dataset-stroke-data.csv")
+```
+
+# Remove 'id' column as it is not useful for prediction
+```{r}
+stroke_data <- stroke_data[, !names(stroke_data) %in% "id"]
+```
+
+
+# Check for missing values
+```{r}
+sum(is.na(stroke_data))
+```
+
+# Replace non-numeric values in 'bmi' with NA and impute missing values with mean
+```{r}
+stroke_data$bmi <- as.numeric(gsub("[^0-9.]", "", stroke_data$bmi))
+stroke_data$bmi[is.na(stroke_data$bmi)] <- mean(stroke_data$bmi, na.rm = TRUE)
+```
+
+#Imputing missing values in 'bmi' with mean
+```{r}
+stroke_data$bmi[is.na(stroke_data$bmi)] <- mean(stroke_data$bmi, na.rm = TRUE)
+```
+
+# Convert categorical variables to factors
+```{r}
+cat_cols <- c("gender", "hypertension", "heart_disease", "ever_married",
+              "work_type", "Residence_type", "smoking_status", "stroke")
+stroke_data[cat_cols] <- lapply(stroke_data[cat_cols], as.factor)
+```
+
+
+# Distribution of Numerical Features
+```{r}
+numeric_features <- stroke_data[, sapply(stroke_data, is.numeric)]
+par(mfrow = c(2,2))
+lapply(names(numeric_features), function(col) hist(numeric_features[[col]],
+     main = paste("Histogram of", col), xlab = col, col = "blue"))
+par(mfrow = c(1,1))
+```
+
+# Convert numeric features to long format explicitly
+```{r}
+numeric_features_long <- melt(numeric_features, id.vars = NULL, measure.vars = names(numeric_features))
+```
+
+# Boxplot for Outlier Detection
+```{r}
+ggplot(numeric_features_long, aes(x = variable, y = value)) +
+  geom_boxplot(aes(fill = variable)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Boxplot of Numerical Features")
+```
+
+
+# Correlation matrix
+```{r}
+cor_matrix <- cor(numeric_features, use = "complete.obs")
+corrplot(cor_matrix, method = "color", tl.cex = 0.8)
+```
+
+# Outlier Detection and Removal (Using IQR)
+```{r}
+outlier_removal <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  x[x < (Q1 - 1.5 * IQR) | x > (Q3 + 1.5 * IQR)] <- NA
+  return(x)
+}
+
+stroke_data[names(numeric_features)] <- lapply(stroke_data[names(numeric_features)], outlier_removal)
+stroke_data <- na.omit(stroke_data)
+```
+
+# Standardization (Scaling Numeric Features)
+```{r}
+stroke_data[names(numeric_features)] <- scale(stroke_data[names(numeric_features)])
+```
+
+# Splitting data into training and testing sets
+```{r}
+set.seed(123)
+train_index <- createDataPartition(stroke_data$stroke, p = 0.8, list = FALSE)
+train_data <- stroke_data[train_index, ]
+test_data <- stroke_data[-train_index, ]
+```
+
+# Logistic Regression Model
+```{r}
+stroke_model <- glm(stroke ~ ., data = train_data, family = binomial)
+pred_probs <- predict(stroke_model, test_data, type = "response")
+pred_labels <- ifelse(pred_probs > 0.5, 1, 0)
+conf_matrix <- confusionMatrix(factor(pred_labels, levels = levels(test_data$stroke)), test_data$stroke)
+print(conf_matrix)
+```
+
+# Decision Tree Model
+```{r}
+tree_model <- train(stroke ~ ., data = train_data, method = "rpart")
+tree_pred <- predict(tree_model, test_data)
+tree_conf_matrix <- confusionMatrix(tree_pred, test_data$stroke)
+print(tree_conf_matrix)
+```
+
+# Random Forest Model
+```{r}
+rf_model <- randomForest(stroke ~ ., data = train_data, ntree = 100)
+rf_pred <- predict(rf_model, test_data)
+rf_conf_matrix <- confusionMatrix(rf_pred, test_data$stroke)
+print(rf_conf_matrix)
+```
+
+
+
+
